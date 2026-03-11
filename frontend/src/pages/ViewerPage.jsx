@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Room, RoomEvent, Track } from 'livekit-client';
+import { Navbar } from '../App';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL;
@@ -9,7 +10,7 @@ export default function ViewerPage() {
   const [searchParams] = useSearchParams();
   const [roomName, setRoomName] = useState(searchParams.get('room') || '');
   const [viewerName, setViewerName] = useState(searchParams.get('name') || '');
-  const [status, setStatus] = useState('idle'); // idle | connecting | watching | stopped
+  const [status, setStatus] = useState('idle'); // idle | connecting | waiting | watching | stopped
   const [error, setError] = useState('');
   const roomRef = useRef(null);
   const videoTrackRef = useRef(null);
@@ -19,13 +20,10 @@ export default function ViewerPage() {
   useEffect(() => {
     const room = searchParams.get('room');
     const name = searchParams.get('name');
-    if (room && name) {
-      doJoin(room, name);
-    }
+    if (room && name) doJoin(room, name);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Callback ref: attach video track as soon as the <video> element mounts
   const videoCallbackRef = useCallback((videoEl) => {
     if (videoEl && videoTrackRef.current) {
       videoTrackRef.current.attach(videoEl);
@@ -39,7 +37,7 @@ export default function ViewerPage() {
   async function doJoin(roomParam, nameParam) {
     if (!roomParam) { setError('Please enter a room name.'); return; }
     if (!nameParam) { setError('Please enter your name.'); return; }
-    if (roomRef.current) return; // already connecting (guards StrictMode double-invoke)
+    if (roomRef.current) return; // guard StrictMode double-invoke
     setError('');
     setStatus('connecting');
 
@@ -47,11 +45,7 @@ export default function ViewerPage() {
       const res = await fetch(`${BACKEND_URL}/api/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomName: roomParam,
-          participantName: nameParam,
-          isHost: false,
-        }),
+        body: JSON.stringify({ roomName: roomParam, participantName: nameParam, isHost: false }),
       });
       if (!res.ok) throw new Error('Failed to get token from server');
       const { token } = await res.json();
@@ -59,7 +53,6 @@ export default function ViewerPage() {
       const lkRoom = new Room();
       roomRef.current = lkRoom;
 
-      // When host publishes a track, attach it
       lkRoom.on(RoomEvent.TrackSubscribed, (track) => {
         if (track.kind === Track.Kind.Video) {
           videoTrackRef.current = track;
@@ -71,7 +64,6 @@ export default function ViewerPage() {
         }
       });
 
-      // When host stops a track
       lkRoom.on(RoomEvent.TrackUnsubscribed, (track) => {
         if (track.kind === Track.Kind.Video) {
           track.detach();
@@ -79,33 +71,31 @@ export default function ViewerPage() {
           setError('The host ended the stream.');
           setStatus('stopped');
         } else if (track.kind === Track.Kind.Audio) {
-          if (audioElRef.current) {
-            audioElRef.current.remove();
-            audioElRef.current = null;
-          }
+          audioElRef.current?.remove();
+          audioElRef.current = null;
         }
       });
 
       lkRoom.on(RoomEvent.Disconnected, () => {
-        if (audioElRef.current) {
-          audioElRef.current.remove();
-          audioElRef.current = null;
-        }
+        audioElRef.current?.remove();
+        audioElRef.current = null;
         videoTrackRef.current = null;
         roomRef.current = null;
         setStatus('stopped');
       });
 
       await lkRoom.connect(LIVEKIT_URL, token);
-      lkRoom.startAudio(); // satisfy browser autoplay policy
+      lkRoom.startAudio();
 
-      // Host may already be streaming — check existing subscribed tracks
+      // Check for host already streaming
+      let foundVideo = false;
       for (const participant of lkRoom.remoteParticipants.values()) {
         for (const pub of participant.trackPublications.values()) {
           if (!pub.isSubscribed || !pub.track) continue;
           if (pub.track.kind === Track.Kind.Video) {
             videoTrackRef.current = pub.track;
             setStatus('watching');
+            foundVideo = true;
           } else if (pub.track.kind === Track.Kind.Audio) {
             const audioEl = pub.track.attach();
             audioElRef.current = audioEl;
@@ -113,69 +103,93 @@ export default function ViewerPage() {
           }
         }
       }
-      // If no video found yet, stay in 'connecting' (TrackSubscribed will fire later)
+      if (!foundVideo) setStatus('waiting');
 
     } catch (err) {
+      roomRef.current = null;
       setError(err.message || 'Failed to join stream');
       setStatus('idle');
     }
   }
 
   function leaveStream() {
-    if (videoTrackRef.current) {
-      videoTrackRef.current.detach();
-    }
-    if (audioElRef.current) {
-      audioElRef.current.remove();
-      audioElRef.current = null;
-    }
-    if (roomRef.current) {
-      roomRef.current.disconnect();
-    }
+    videoTrackRef.current?.detach();
+    audioElRef.current?.remove();
+    audioElRef.current = null;
+    roomRef.current?.disconnect();
   }
 
   return (
-    <div className="page">
-      <h1>👁️ Watch Stream</h1>
+    <>
+      <Navbar showBack />
+      <div className="stream-page">
 
-      {(status === 'idle' || status === 'stopped') && (
-        <div className="form">
-          <input
-            type="text"
-            placeholder="Room name (e.g. my-stream)"
-            value={roomName}
-            onChange={(e) => setRoomName(e.target.value)}
-          />
-          <input
-            type="text"
-            placeholder="Your name (e.g. viewer1)"
-            value={viewerName}
-            onChange={(e) => setViewerName(e.target.value)}
-          />
-          <button onClick={joinStream}>Watch</button>
-          {status === 'stopped' && <p className="info">You left the stream.</p>}
-        </div>
-      )}
+        {(status === 'idle' || status === 'stopped') && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '2rem' }}>
+            <div className="card">
+              <h1>👁 Watch Stream</h1>
+              <p className="card-subtitle">Enter the room name to join a live stream.</p>
+              {error && <div className="error-banner">{error}</div>}
+              {status === 'stopped' && !error && (
+                <div style={{ marginBottom: '1rem', color: '#a0aec0', fontSize: '0.9rem' }}>
+                  You have left the stream.
+                </div>
+              )}
+              <div className="field">
+                <label>Room Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. my-stream"
+                  value={roomName}
+                  onChange={(e) => { setRoomName(e.target.value); setError(''); }}
+                />
+              </div>
+              <div className="field">
+                <label>Your Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. viewer1"
+                  value={viewerName}
+                  onChange={(e) => { setViewerName(e.target.value); setError(''); }}
+                  onKeyDown={(e) => e.key === 'Enter' && joinStream()}
+                />
+              </div>
+              <button className="btn btn-primary" style={{ width: '100%', marginTop: '0.5rem' }} onClick={joinStream}>
+                Join Stream →
+              </button>
+            </div>
+          </div>
+        )}
 
-      {status === 'connecting' && (
-        <p className="info">⏳ Waiting for the host to start streaming...</p>
-      )}
+        {status === 'connecting' && (
+          <div className="status-box">
+            <div className="spinner" />
+            <p>Connecting to stream&hellip;</p>
+          </div>
+        )}
 
-      {error && <p className="error">{error}</p>}
+        {status === 'waiting' && (
+          <div className="status-box">
+            <div className="spinner" />
+            <p>Waiting for the host to start&hellip;</p>
+            <button className="btn btn-ghost btn-sm" onClick={leaveStream}>Leave</button>
+          </div>
+        )}
 
-      {status === 'watching' && (
-        <div className="stream-container">
-          <p className="live-badge">▶ LIVE — Room: <strong>{roomName}</strong></p>
-          <video ref={videoCallbackRef} autoPlay playsInline className="video" />
-          <button className="stop-btn" onClick={leaveStream}>Leave</button>
-        </div>
-      )}
+        {status === 'watching' && (
+          <>
+            <div className="stream-header">
+              <span className="live-pill"><span className="pulse" style={{ background: '#fff' }} />LIVE</span>
+              <span className="stream-title">{roomName}</span>
+              <button className="btn btn-ghost btn-sm" onClick={leaveStream}>Leave</button>
+            </div>
+            <div className="video-wrapper">
+              <video ref={videoCallbackRef} autoPlay playsInline className="video" />
+            </div>
+          </>
+        )}
 
-      {(status === 'idle' || status === 'stopped') && (
-        <div className="hint">
-          <p>Ask the host for the room name to join their stream.</p>
-        </div>
-      )}
-    </div>
+      </div>
+    </>
   );
 }

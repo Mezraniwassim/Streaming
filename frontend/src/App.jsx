@@ -6,6 +6,25 @@ import './App.css';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
+function Navbar({ showBack }) {
+  return (
+    <nav className="navbar">
+      <Link to="/" className="navbar-brand">🎬 LiveStream</Link>
+      <div className="navbar-links">
+        {showBack
+          ? <Link to="/"><button className="nav-btn">← Back</button></Link>
+          : (
+            <>
+              <Link to="/watch"><button className="nav-btn">👁 Watch</button></Link>
+              <Link to="/host"><button className="nav-btn primary">🎥 Go Live</button></Link>
+            </>
+          )
+        }
+      </div>
+    </nav>
+  );
+}
+
 function Home() {
   const [rooms, setRooms] = useState([]);
   const navigate = useNavigate();
@@ -26,32 +45,46 @@ function Home() {
   }, []);
 
   return (
-    <div className="page center">
-      <h1>🎬 Live Streaming App</h1>
-      <div className="nav-buttons">
-        <Link to="/host"><button>🎥 Start Streaming (Host)</button></Link>
-        <Link to="/watch"><button>👁️ Watch Stream (Viewer)</button></Link>
-      </div>
+    <>
+      <Navbar />
+      <div className="page">
+        <div className="home-hero">
+          <h1>Stream Live,<br />Watch Together</h1>
+          <p>Start a broadcast instantly — no account needed.</p>
+          <div className="hero-actions">
+            <Link to="/host"><button className="btn btn-primary">🎥 Start Broadcasting</button></Link>
+            <Link to="/watch"><button className="btn btn-secondary">👁 Watch a Stream</button></Link>
+          </div>
+        </div>
 
-      <div className="rooms-section">
-        <h2>🔴 Live Now</h2>
-        {rooms.length === 0 ? (
-          <p className="info">No streams running right now.</p>
-        ) : (
-          <ul className="rooms-list">
-            {rooms.map((r) => (
-              <li key={r.name} className="room-item">
-                <span className="room-name">{r.name}</span>
-                <span className="room-viewers">{r.numParticipants} viewer{r.numParticipants !== 1 ? 's' : ''}</span>
-                <button onClick={() => navigate(`/watch?room=${encodeURIComponent(r.name)}`)}>
-                  Watch
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <div style={{ marginTop: '2.5rem' }}>
+          <p className="section-title">🔴 Live Right Now</p>
+          {rooms.length === 0 ? (
+            <div className="empty-rooms">No streams live right now. Be the first to go live!</div>
+          ) : (
+            <div className="rooms-grid">
+              {rooms.map((r) => (
+                <div key={r.name} className="room-card">
+                  <div className="room-card-header">
+                    <span className="pulse" />
+                    <span className="room-card-name">{r.name}</span>
+                  </div>
+                  <div className="room-card-viewers">
+                    👥 {r.numParticipants} viewer{r.numParticipants !== 1 ? 's' : ''} watching
+                  </div>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => navigate(`/watch?room=${encodeURIComponent(r.name)}`)}
+                  >
+                    Watch Now →
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -66,3 +99,5 @@ export default function App() {
     </BrowserRouter>
   );
 }
+
+export { Navbar };
