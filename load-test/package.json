@@ -1,0 +1,12 @@
+{
+  "name": "load-test",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test-api": "node test-api.js",
+    "open-viewers": "bash open-viewers.sh"
+  },
+  "dependencies": {
+    "dotenv": "^17.3.1"
+  }
+}
